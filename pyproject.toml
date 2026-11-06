@@ -1,0 +1,6 @@
+[project]
+name = "pocket-tts-indonesian"
+version = "0.1.0"
+description = "TTS bahasa Indonesia dengan voice cloning (anak10thn/pocket-tts-indonesian)"
+requires-python = ">=3.10"
+dependencies = ["pocket-tts", "scipy", "huggingface_hub"]
