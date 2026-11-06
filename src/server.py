@@ -1,6 +1,8 @@
 """Server HTTP Pocket TTS Indonesian (port 6000).
 
-GET  /                  info + daftar suara
+GET  /                  dashboard web
+GET  /info              info + daftar suara
+POST /normalize         pratinjau teks yang dieja
 GET  /voices            daftar suara di voices/
 POST /tts               JSON {"text","voice","eos_threshold"} -> audio/wav
 GET  /tts?text=...&voice=klon   -> audio/wav
@@ -15,7 +17,7 @@ import threading
 
 import scipy.io.wavfile
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -85,7 +87,32 @@ def warmup():
         _model(DEFAULT_EOS)
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
+def dashboard():
+    return FileResponse(os.path.join(ROOT, "static", "index.html"))
+
+
+class NormReq(BaseModel):
+    text: str
+
+
+@app.post("/normalize")
+def norm(r: NormReq):
+    return {"text": normalize(r.text)}
+
+
+@app.get("/voices/{nama}/audio")
+def voice_audio(nama: str):
+    return FileResponse(_voice_path(nama), media_type="audio/wav")
+
+
+@app.delete("/voices/{nama}")
+def delete_voice(nama: str):
+    os.remove(_voice_path(nama))
+    return {"ok": True}
+
+
+@app.get("/info")
 def info():
     return {"service": "pocket-tts-indonesian", "default_voice": DEFAULT_VOICE,
             "voices": _voices(), "max_chars": MAX_CHARS}
