@@ -61,6 +61,7 @@ summary{cursor:pointer;color:var(--muted);font-size:.92rem}
 label{display:block;font-size:.9rem;color:var(--muted);margin:10px 0 4px}
 input[type=text],input[type=file]{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit;font:inherit}
 input[type=range]{width:100%;accent-color:var(--accent)}
+select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:inherit;font:inherit}
 .spin{display:inline-block;width:.9em;height:.9em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;
   animation:sp .7s linear infinite;vertical-align:-.1em;margin-right:8px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -86,6 +87,18 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <h2 style="margin-top:16px">Suara</h2>
   <div class="chips" id="voices" role="group" aria-label="Pilih suara"></div>
 
+  <h2 style="margin-top:16px">Mode</h2>
+  <div class="chips" id="modes" role="group" aria-label="Mode pembuatan suara"></div>
+  <div id="betaOpts" hidden>
+    <label for="style">Gaya bicara</label>
+    <select id="style">
+      <option value="percakapan">Percakapan santai</option>
+      <option value="berita">Berita, jelas dan tegas</option>
+      <option value="ekspresif">Ekspresif, lebih hidup</option>
+    </select>
+    <p class="sub" style="margin:6px 0 0" id="betaNote">AI menyusun ulang teks: mengeja angka dan singkatan, memecah kalimat, serta mengatur tanda baca dan jeda supaya intonasi lebih alami.</p>
+  </div>
+
   <details>
     <summary>Pengaturan lanjutan</summary>
     <label for="eos">Ambang akhir kalimat: <b id="eosv">-6.0</b></label>
@@ -108,6 +121,15 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     <div class="row spread" style="margin-top:10px">
       <span class="sub" id="meta"></span>
       <a id="dl" download="suara.wav"><button class="small" type="button">Unduh WAV</button></a>
+    </div>
+    <div id="scriptBox" hidden style="margin-top:16px">
+      <h2>Naskah AI (bisa diedit)</h2>
+      <p class="sub" style="margin:0 0 6px">Satu baris satu segmen. Titik membuat nada turun, koma jeda napas singkat, tanda tanya nada naik.</p>
+      <textarea id="script" style="min-height:130px;font-size:.95rem" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="small" id="regen" type="button">Buat ulang dari naskah ini</button>
+        <span class="sub" id="scriptSrc"></span>
+      </div>
     </div>
   </div>
 </section>
@@ -134,7 +156,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 
 <script>
 const $ = s => document.querySelector(s);
-let maxChars = 600, voice = null, voices = [], hist = [], peaks = null;
+let maxChars = 600, maxBeta = 1500, aiOn = false, mode = 'std', voice = null, voices = [], hist = [], peaks = null;
 const text = $('#text'), player = $('#player');
 
 function say(el, msg){ $(el).textContent = msg || ''; }
@@ -152,10 +174,10 @@ async function api(path, opt){
 async function loadInfo(){
   try{
     const i = await (await api('/info')).json();
-    maxChars = i.max_chars; voices = i.voices;
+    maxChars = i.max_chars; maxBeta = i.max_chars_beta || 1500; aiOn = !!i.ai_aktif; voices = i.voices;
     if(!voice || !voices.includes(voice)) voice = voices.includes(i.default_voice) ? i.default_voice : voices[0];
     $('#status').textContent = 'Siap · ' + voices.length + ' suara';
-    renderVoices(); updateCount();
+    renderVoices(); renderModes(); updateCount();
   }catch(e){ $('#status').textContent = 'Server tidak terjangkau'; }
 }
 
@@ -180,12 +202,30 @@ function renderVoices(){
   });
 }
 
+function renderModes(){
+  const box = $('#modes'); box.textContent = '';
+  [['std','Standar'],['beta','Beta AI']].forEach(m => {
+    const c = document.createElement('div'); c.className = 'chip';
+    const b = document.createElement('button'); b.className = 'pick'; b.type = 'button';
+    b.textContent = m[1]; b.setAttribute('aria-pressed', mode === m[0]);
+    b.onclick = () => { mode = m[0]; renderModes(); updateCount(); };
+    c.append(b); box.append(c);
+  });
+  $('#betaOpts').hidden = mode !== 'beta';
+  $('#go').textContent = mode === 'beta' ? 'Buat suara (Beta AI)' : 'Buat suara';
+  $('#betaNote').textContent = aiOn
+    ? 'AI menyusun ulang teks: mengeja angka dan singkatan, memecah kalimat, serta mengatur tanda baca dan jeda supaya intonasi lebih alami.'
+    : 'Kunci AI belum diatur di server. Naskah disusun dengan aturan dasar (tanpa AI), tetap dipecah per kalimat dan diberi jeda.';
+}
+
+function limit(){ return mode === 'beta' ? maxBeta : maxChars; }
+
 function updateCount(){
   const n = text.value.length, el = $('#count');
-  el.textContent = n + ' / ' + maxChars + ' karakter';
-  el.classList.toggle('over', n > maxChars);
+  el.textContent = n + ' / ' + limit() + ' karakter';
+  el.classList.toggle('over', n > limit());
 }
-let nt;
+let nt, current = null;
 text.addEventListener('input', () => {
   updateCount(); clearTimeout(nt);
   nt = setTimeout(async () => {
@@ -242,6 +282,12 @@ async function show(item){
   $('#dl').download = 'suara_' + item.voice + '_' + item.id + '.wav';
   $('#meta').textContent = item.voice + ' · ' + item.dur.toFixed(1) + ' dtk · dibuat dalam ' + item.sec.toFixed(1) + ' dtk';
   peaks = item.peaks; drawWave(); player.play().catch(() => {});
+  const sb = $('#scriptBox');
+  if(item.segmen){
+    sb.hidden = false; $('#script').value = item.segmen.map(x => x.teks).join('\n');
+    $('#scriptSrc').textContent = item.sumber === 'ai' ? 'Disusun oleh AI' : (item.catatan || 'Aturan dasar');
+    current = item;
+  } else { sb.hidden = true; current = null; }
 }
 
 function renderHist(){
@@ -261,25 +307,60 @@ function renderHist(){
   });
 }
 
+function setBusy(label){
+  const btn = $('#go'); btn.disabled = true; btn.textContent = '';
+  const sp = document.createElement('span'); sp.className = 'spin'; btn.append(sp, label);
+}
+function clearBusy(){ const b = $('#go'); b.disabled = false; renderModes(); }
+
+async function synthBeta(segmen, t, sumber, catatan){
+  setBusy('Membuat suara dari ' + segmen.length + ' segmen…');
+  const t0 = performance.now();
+  const r = await api('/tts/script', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({segmen, voice, eos_threshold:Number($('#eos').value)})});
+  const blob = await r.blob(), sec = (performance.now() - t0) / 1000;
+  const pk = await decodePeaks(blob, 90);
+  const item = {id: Date.now(), text:t, voice, url:URL.createObjectURL(blob), sec, dur:pk.dur, peaks:pk.peaks, segmen, sumber, catatan};
+  hist.unshift(item); if(hist.length > 20){ URL.revokeObjectURL(hist.pop().url); }
+  renderHist(); show(item);
+}
+
 async function generate(){
-  const t = text.value.trim(), btn = $('#go');
+  const t = text.value.trim();
   say('#err', '');
   if(!t){ say('#err', 'Tulis teks dulu.'); text.focus(); return; }
-  if(t.length > maxChars){ say('#err', 'Teks melebihi ' + maxChars + ' karakter. Pecah jadi beberapa bagian.'); return; }
-  btn.disabled = true; btn.textContent = ''; const s = document.createElement('span'); s.className = 'spin';
-  btn.append(s, 'Membuat suara…');
-  const t0 = performance.now();
+  if(t.length > limit()){ say('#err', 'Teks melebihi ' + limit() + ' karakter. Pecah jadi beberapa bagian.'); return; }
   try{
-    const r = await api('/tts', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({text:t, voice, eos_threshold:Number($('#eos').value)})});
-    const blob = await r.blob(), sec = (performance.now() - t0) / 1000;
-    const pk = await decodePeaks(blob, 90);
-    const item = {id: Date.now(), text:t, voice, url:URL.createObjectURL(blob), sec, dur:pk.dur, peaks:pk.peaks};
-    hist.unshift(item); if(hist.length > 20){ URL.revokeObjectURL(hist.pop().url); }
-    renderHist(); show(item);
+    if(mode === 'beta'){
+      setBusy('Menyusun naskah…');
+      const p = await (await api('/script', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text:t, style:$('#style').value})})).json();
+      await synthBeta(p.segmen, t, p.sumber, p.catatan);
+    } else {
+      setBusy('Membuat suara…');
+      const t0 = performance.now();
+      const r = await api('/tts', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text:t, voice, eos_threshold:Number($('#eos').value)})});
+      const blob = await r.blob(), sec = (performance.now() - t0) / 1000;
+      const pk = await decodePeaks(blob, 90);
+      const item = {id: Date.now(), text:t, voice, url:URL.createObjectURL(blob), sec, dur:pk.dur, peaks:pk.peaks};
+      hist.unshift(item); if(hist.length > 20){ URL.revokeObjectURL(hist.pop().url); }
+      renderHist(); show(item);
+    }
   }catch(e){ say('#err', 'Gagal membuat suara: ' + e.message); }
-  btn.disabled = false; btn.textContent = 'Buat suara';
+  clearBusy();
 }
+$('#regen').onclick = async () => {
+  if(!current) return;
+  const lines = $('#script').value.split('\n').map(x => x.trim()).filter(Boolean);
+  if(!lines.length){ say('#err', 'Naskah kosong.'); return; }
+  const same = lines.length === current.segmen.length;
+  const segmen = lines.map((l, i) => ({teks:l, jeda_ms: same ? current.segmen[i].jeda_ms : null}));
+  say('#err', '');
+  try{ await synthBeta(segmen, current.text, 'ai', 'Naskah diedit manual'); }
+  catch(e){ say('#err', 'Gagal membuat suara: ' + e.message); }
+  clearBusy();
+};
 $('#go').onclick = generate;
 
 $('#up').onclick = async () => {

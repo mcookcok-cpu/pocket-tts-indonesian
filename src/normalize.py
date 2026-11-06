@@ -50,6 +50,7 @@ def _angka(m: re.Match) -> str:
 
 
 def normalize(teks: str) -> str:
+    teks = re.sub(r"\bRp\.?\s*(\d+(?:[.,]\d+)*)", r"\1 rupiah", teks, flags=re.I)
     teks = re.sub(r"(?<=\d)%", " persen", teks)
     teks = re.sub(r"\d{1,3}(?:\.\d{3})+|\d+,\d+|\d+", _angka, teks)
     teks = teks.replace("!", ".")

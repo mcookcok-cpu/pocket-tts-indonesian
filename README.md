@@ -18,3 +18,14 @@ uv run python src/tts.py "Halo, ada 15 pesanan baru." -v voices/suara1.wav -o ou
 - Teks panjang: kadang satu item daftar terlewat; pecah jadi kalimat terpisah.
 - Kualitas dibatasi data 16 kHz (UTMOS 2.68), setara telepon/YouTube.
 - Lisensi CC-BY-4.0.
+
+## Server dan dashboard
+`pm2 start ecosystem.config.js` -> http://HOST:6001/ (port 6000 diblokir Chrome/Brave: ERR_UNSAFE_PORT).
+
+## Mode Beta AI
+Model ini belajar intonasi dari tanda baca, jadi AI bekerja di sisi naskah (`src/beta.py`):
+LLM (LRouter, kunci dibaca dari .env proyek Mao saat pm2 start) mengeja angka/singkatan,
+memecah jadi segmen pendek, mengatur koma/titik/tanda tanya dan jeda per segmen.
+Tiap segmen disintesis, divalidasi (senyap/terpotong/melantur -> diulang dengan eos -5.0 lalu -4.0),
+dipangkas, disambung dengan jeda, dan dinormalkan volumenya. Jika AI gagal, memakai aturan dasar.
+Endpoint: `POST /script`, `POST /tts/script`, `POST /tts/beta`.
