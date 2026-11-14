@@ -95,8 +95,22 @@ select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8p
       <option value="percakapan">Percakapan santai</option>
       <option value="berita">Berita, jelas dan tegas</option>
       <option value="ekspresif">Ekspresif, lebih hidup</option>
+      <option value="desa">Penutur desa, tempo mengikuti cerita</option>
+      <option value="dongeng">Dongeng, bercerita hangat</option>
+      <option value="puitis">Puitis, lirih dan mengalun</option>
+      <option value="dramatis">Dramatis, penuh perasaan</option>
     </select>
-    <p class="sub" style="margin:6px 0 0" id="betaNote">AI menyusun ulang teks: mengeja angka dan singkatan, memecah kalimat, serta mengatur tanda baca dan jeda supaya intonasi lebih alami.</p>
+    <div id="eksOpts" hidden>
+      <label for="jeda">Jeda tanda baca</label>
+      <select id="jeda">
+        <option value="0.8">Singkat</option>
+        <option value="1" selected>Natural</option>
+        <option value="1.3">Ekspresif</option>
+        <option value="1.7">Dramatis, jeda panjang</option>
+      </select>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="koma"> Jeda di koma (kalimat panjang dibacakan per frasa; bisa terdengar patah-patah)</label>
+    </div>
+    <p class="sub" style="margin:6px 0 0" id="betaNote">AI menyusun ulang teks: mengeja angka dan singkatan serta mengatur tanda baca supaya intonasi lebih alami. Dibacakan per kalimat utuh, tanpa dipotong per frasa: jeda titik lebih panjang dari jeda koma.</p>
   </div>
 
   <details>
@@ -124,7 +138,7 @@ select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8p
     </div>
     <div id="scriptBox" hidden style="margin-top:16px">
       <h2>Naskah AI (bisa diedit)</h2>
-      <p class="sub" style="margin:0 0 6px">Satu baris satu segmen. Titik membuat nada turun, koma jeda napas singkat, tanda tanya nada naik.</p>
+      <p class="sub" style="margin:0 0 6px">Naskah dibacakan per kalimat utuh jadi satu rekaman. Titik membuat nada turun, koma jeda napas singkat, tanda tanya nada naik.</p>
       <textarea id="script" style="min-height:130px;font-size:.95rem" spellcheck="false"></textarea>
       <div class="row" style="margin-top:8px">
         <button class="small" id="regen" type="button">Buat ulang dari naskah ini</button>
@@ -156,7 +170,7 @@ select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8p
 
 <script>
 const $ = s => document.querySelector(s);
-let maxChars = 600, maxBeta = 1500, aiOn = false, mode = 'std', voice = null, voices = [], hist = [], peaks = null;
+let maxChars = 10000, maxBeta = 10000, aiOn = false, mode = 'std', voice = null, voices = [], hist = [], peaks = null;
 const text = $('#text'), player = $('#player');
 
 function say(el, msg){ $(el).textContent = msg || ''; }
@@ -174,7 +188,7 @@ async function api(path, opt){
 async function loadInfo(){
   try{
     const i = await (await api('/info')).json();
-    maxChars = i.max_chars; maxBeta = i.max_chars_beta || 1500; aiOn = !!i.ai_aktif; voices = i.voices;
+    maxChars = i.max_chars; maxBeta = i.max_chars_beta || 10000; aiOn = !!i.ai_aktif; voices = i.voices;
     if(!voice || !voices.includes(voice)) voice = voices.includes(i.default_voice) ? i.default_voice : voices[0];
     $('#status').textContent = 'Siap · ' + voices.length + ' suara';
     renderVoices(); renderModes(); updateCount();
@@ -204,21 +218,23 @@ function renderVoices(){
 
 function renderModes(){
   const box = $('#modes'); box.textContent = '';
-  [['std','Standar'],['beta','Beta AI']].forEach(m => {
+  [['std','Standar'],['beta','Beta AI'],['eksp','Eksperimental']].forEach(m => {
     const c = document.createElement('div'); c.className = 'chip';
     const b = document.createElement('button'); b.className = 'pick'; b.type = 'button';
     b.textContent = m[1]; b.setAttribute('aria-pressed', mode === m[0]);
     b.onclick = () => { mode = m[0]; renderModes(); updateCount(); };
     c.append(b); box.append(c);
   });
-  $('#betaOpts').hidden = mode !== 'beta';
-  $('#go').textContent = mode === 'beta' ? 'Buat suara (Beta AI)' : 'Buat suara';
+  $('#betaOpts').hidden = mode !== 'beta' && mode !== 'eksp';
+  $('#go').textContent = mode === 'beta' ? 'Buat suara (Beta AI)' : mode === 'eksp' ? 'Buat suara (Eksperimental)' : 'Buat suara';
   $('#betaNote').textContent = aiOn
-    ? 'AI menyusun ulang teks: mengeja angka dan singkatan, memecah kalimat, serta mengatur tanda baca dan jeda supaya intonasi lebih alami.'
-    : 'Kunci AI belum diatur di server. Naskah disusun dengan aturan dasar (tanpa AI), tetap dipecah per kalimat dan diberi jeda.';
+    ? 'AI menyusun ulang teks: mengeja angka dan singkatan serta mengatur tanda baca supaya intonasi lebih alami. Dibacakan per kalimat utuh, tanpa dipotong per frasa: jeda titik lebih panjang dari jeda koma.'
+    : 'Kunci AI belum diatur di server. Naskah disusun dengan aturan dasar (tanpa AI), suara tetap dibacakan per kalimat utuh.';
+  $('#eksOpts').hidden = mode !== 'eksp';
+  if(mode === 'eksp') $('#betaNote').textContent = 'Eksperimental: jeda titik, tanya, dan koma diatur sendiri (tanya dan kalimat panjang diberi jeda lebih), volume antar kalimat disamakan. Atur kekuatan jeda di bawah.';
 }
 
-function limit(){ return mode === 'beta' ? maxBeta : maxChars; }
+function limit(){ return (mode === 'beta' || mode === 'eksp') ? maxBeta : maxChars; }
 
 function updateCount(){
   const n = text.value.length, el = $('#count');
@@ -285,7 +301,13 @@ async function show(item){
   const sb = $('#scriptBox');
   if(item.segmen){
     sb.hidden = false; $('#script').value = item.segmen.map(x => x.teks).join('\n');
-    $('#scriptSrc').textContent = item.sumber === 'ai' ? 'Disusun oleh AI' : (item.catatan || 'Aturan dasar');
+    let ket = item.sumber === 'ai' ? 'Disusun oleh AI' : (item.catatan || 'Aturan dasar');
+    if(item.segmen.some(x => x.tempo)){
+      const n = {lambat:0, normal:0, cepat:0};
+      item.segmen.forEach(x => { const t = x.tempo || 1; n[t < 0.95 ? 'lambat' : (t > 1.05 ? 'cepat' : 'normal')]++; });
+      ket += ' · tempo: ' + n.lambat + ' lambat, ' + n.normal + ' normal, ' + n.cepat + ' cepat';
+    }
+    $('#scriptSrc').textContent = ket;
     current = item;
   } else { sb.hidden = true; current = null; }
 }
@@ -314,10 +336,10 @@ function setBusy(label){
 function clearBusy(){ const b = $('#go'); b.disabled = false; renderModes(); }
 
 async function synthBeta(segmen, t, sumber, catatan){
-  setBusy('Membuat suara dari ' + segmen.length + ' segmen…');
+  setBusy('Membuat suara…');
   const t0 = performance.now();
-  const r = await api('/tts/script', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({segmen, voice, eos_threshold:Number($('#eos').value)})});
+  const r = await api(mode === 'eksp' ? '/tts/script-eksp' : '/tts/script', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(Object.assign({segmen, style:$('#style').value, voice, eos_threshold:Number($('#eos').value)}, mode === 'eksp' ? {jeda_skala:Number($('#jeda').value), pecah_koma:$('#koma').checked} : {}))});
   const blob = await r.blob(), sec = (performance.now() - t0) / 1000;
   const pk = await decodePeaks(blob, 90);
   const item = {id: Date.now(), text:t, voice, url:URL.createObjectURL(blob), sec, dur:pk.dur, peaks:pk.peaks, segmen, sumber, catatan};
@@ -331,7 +353,7 @@ async function generate(){
   if(!t){ say('#err', 'Tulis teks dulu.'); text.focus(); return; }
   if(t.length > limit()){ say('#err', 'Teks melebihi ' + limit() + ' karakter. Pecah jadi beberapa bagian.'); return; }
   try{
-    if(mode === 'beta'){
+    if(mode === 'beta' || mode === 'eksp'){
       setBusy('Menyusun naskah…');
       const p = await (await api('/script', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text:t, style:$('#style').value})})).json();
@@ -355,7 +377,7 @@ $('#regen').onclick = async () => {
   const lines = $('#script').value.split('\n').map(x => x.trim()).filter(Boolean);
   if(!lines.length){ say('#err', 'Naskah kosong.'); return; }
   const same = lines.length === current.segmen.length;
-  const segmen = lines.map((l, i) => ({teks:l, jeda_ms: same ? current.segmen[i].jeda_ms : null}));
+  const segmen = lines.map((l, i) => ({teks:l, tempo: same ? (current.segmen[i].tempo || null) : null}));
   say('#err', '');
   try{ await synthBeta(segmen, current.text, 'ai', 'Naskah diedit manual'); }
   catch(e){ say('#err', 'Gagal membuat suara: ' + e.message); }

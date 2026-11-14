@@ -24,8 +24,27 @@ uv run python src/tts.py "Halo, ada 15 pesanan baru." -v voices/suara1.wav -o ou
 
 ## Mode Beta AI
 Model ini belajar intonasi dari tanda baca, jadi AI bekerja di sisi naskah (`src/beta.py`):
-LLM (LRouter, kunci dibaca dari .env proyek Mao saat pm2 start) mengeja angka/singkatan,
-memecah jadi segmen pendek, mengatur koma/titik/tanda tanya dan jeda per segmen.
-Tiap segmen disintesis, divalidasi (senyap/terpotong/melantur -> diulang dengan eos -5.0 lalu -4.0),
-dipangkas, disambung dengan jeda, dan dinormalkan volumenya. Jika AI gagal, memakai aturan dasar.
+LLM (LRouter, kunci dibaca dari .env proyek Mao saat pm2 start) mengeja angka/singkatan dan
+mengatur koma/titik/tanda tanya menjadi SATU naskah utuh. Naskah dibacakan per kalimat utuh
+(bukan per frasa; cara lama itu membuat suara putus-putus), tanpa pemangkasan antar kalimat dan tanpa
+senyap sisipan. Jeda setelah titik/tanda tanya dihasilkan model lewat `frames_after_eos` (`JEDA_TITIK`
+di `src/beta.py`, per gaya), jadi selalu lebih panjang dari jeda koma yang napas alami di dalam kalimat.
+Tiap kalimat divalidasi dan diulang sendiri bila senyap/terpotong/melantur (eos -5.0 lalu -4.0).
+Jika AI gagal, memakai aturan dasar (tanpa AI).
 Endpoint: `POST /script`, `POST /tts/script`, `POST /tts/beta`.
+
+### Gaya bicara (menjiwai)
+Pilihan gaya: percakapan, berita, ekspresif, dongeng, desa, puitis, dramatis. Gaya mengubah dua hal:
+1. Naskah: LLM mengatur koma/titik/tanda tanya sesuai irama gaya (kata asli tidak diubah).
+2. Panjang jeda setelah titik/tanda tanya (`JEDA_TITIK` di `src/beta.py`).
+Suhu sampling model sudah diuji (0,3 sampai 0,9) dan tidak mengubah variasi nada berarti, jadi tidak dipakai.
+Pengaruh terbesar pada nada tetap dari rekaman suara acuan: untuk membaca cerita lebih hidup,
+unggah rekaman 10 sampai 20 detik orang yang membaca dengan ekspresif.
+
+### Gaya Penutur desa (tempo mengikuti cerita)
+AI memberi tiap kalimat label tempo (sangat_lambat 0,74 / lambat 0,86 / normal / cepat 1,14 / sangat_cepat 1,27)
+sesuai suasana cerita: hening dan haru pelan, aksi dan ketegangan cepat. Tiap kalimat disintesis lalu
+diperlambat atau dipercepat tanpa mengubah tinggi nada (ffmpeg `atempo`, `_ubah_tempo` di `src/server.py`);
+jeda setelah kalimat ikut melambat atau mempercepat. Field `tempo` (0,7 sampai 1,3) ada di tiap segmen
+`/script` dan `/tts/script`; di dashboard, tempo dipertahankan saat naskah diedit selama jumlah baris tetap.
+Mode tanpa AI memakai tempo normal.
